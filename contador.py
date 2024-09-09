@@ -3,6 +3,7 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import cv2
 import numpy as np
+from datetime import datetime
 
 # Configuração inicial do CustomTkinter
 ctk.set_appearance_mode("System")  # Segue o tema do sistema (light/dark)
@@ -63,18 +64,32 @@ def process_image_stages():
     stage_names.append("Limiarização (Thresholding)")
 
     # 5. Operações morfológicas (remoção de ruídos e conexão de áreas quebradas)
-    # Reduzindo o tamanho do kernel para preservar objetos pequenos
-    kernel = np.ones((1, 1), np.uint8)  # Testar com diferentes tamanhos: (2, 2), (1, 1), etc.
+    kernel = np.ones((2, 2), np.uint8)
     morph = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)  # Abertura para remover pequenos ruídos
     morph = cv2.morphologyEx(morph, cv2.MORPH_CLOSE, kernel, iterations=1)  # Fechamento para conectar áreas quebradas
     stages.append(cv2.cvtColor(morph, cv2.COLOR_GRAY2BGR))  # Convertendo para BGR para exibição
-    stage_names.append("Operações Morfológicas (Kernel reduzido)")
+    stage_names.append("Operações Morfológicas")
 
-    # 6. Encontrar contornos na imagem
+    # 6. Encontrar contornos na imagem e adicionar a contagem de objetos
     contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contour_image = cv2.drawContours(image.copy(), contours, -1, (0, 255, 0), 2)
+    
+    # Contar o número de objetos detectados
+    num_objects = len(contours)
+    
+    # Adicionar o número de objetos detectados à imagem
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.putText(contour_image, f'Objetos Detectados: {num_objects}', (10, 30), font, 1, (0, 255, 0), 2, cv2.LINE_AA)
+
+    # Adicionar ao estágio e ao nome
     stages.append(contour_image)
-    stage_names.append("Contornos Detectados")
+    stage_names.append(f"Contornos Detectados - Objetos: {num_objects}")
+
+    # Salvar a imagem com data e hora para evitar sobreescrita
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_image_path = f"output_contours_{timestamp}.jpg"
+    cv2.imwrite(output_image_path, contour_image)
+    messagebox.showinfo("Imagem salva", f"A imagem foi salva como {output_image_path}")
 
     # Exibir o primeiro estágio (imagem original)
     display_current_stage()
@@ -89,7 +104,6 @@ def display_current_stage():
         image_label.configure(image=img_tk)
         image_label.image = img_tk
         stage_label.configure(text=stage_names[current_stage])  # Atualiza o label com o nome do estágio
-        stage_label.pack(pady=10)  # Garante que o label será mostrado
 
 # Função para avançar para o próximo estágio
 def next_stage():
