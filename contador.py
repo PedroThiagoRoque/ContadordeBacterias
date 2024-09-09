@@ -9,11 +9,15 @@ from datetime import datetime
 ctk.set_appearance_mode("System")  # Segue o tema do sistema (light/dark)
 ctk.set_default_color_theme("blue")  # Tema padrão
 
-# Variáveis globais para controle do estado da imagem
+# Variáveis globais para controle do estado da imagem e parâmetros ajustáveis
 image_path = None
 stages = []
 stage_names = []
 current_stage = 0
+blur_value = 5
+threshold_value = 150
+kernel_size = 2
+morph_iterations = 1
 
 # Função para carregar e mostrar a imagem original
 def load_image():
@@ -27,6 +31,7 @@ def load_image():
         image_label.configure(image=img)
         image_label.image = img
         stage_label.configure(text="Imagem Original")
+        save_image_btn.configure(state="disabled")  # Desabilitar botão de salvar
         messagebox.showinfo("Imagem carregada", "Imagem carregada com sucesso!")
         
         # Resetar os estágios e nomes
@@ -39,7 +44,7 @@ def load_image():
 
 # Função para processar e armazenar os diferentes estágios de processamento
 def process_image_stages():
-    global stages, stage_names, image_path
+    global stages, stage_names, image_path, blur_value, threshold_value, kernel_size, morph_iterations
 
     # Carregar a imagem usando OpenCV
     image = cv2.imread(image_path)
@@ -54,21 +59,21 @@ def process_image_stages():
     stage_names.append("Escala de Cinza")
 
     # 3. Aplicar filtro Gaussiano para suavizar
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    blurred = cv2.GaussianBlur(gray, (blur_value, blur_value), 0)
     stages.append(cv2.cvtColor(blurred, cv2.COLOR_GRAY2BGR))  # Convertendo para BGR para exibição
-    stage_names.append("Imagem Suavizada (Filtro Gaussiano)")
+    stage_names.append(f"Imagem Suavizada (Blur: {blur_value})")
 
     # 4. Aplicar limiarização (thresholding)
-    _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV)
+    _, thresh = cv2.threshold(blurred, threshold_value, 255, cv2.THRESH_BINARY_INV)
     stages.append(cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR))  # Convertendo para BGR para exibição
-    stage_names.append("Limiarização (Thresholding)")
+    stage_names.append(f"Limiarização (Threshold: {threshold_value})")
 
     # 5. Operações morfológicas (remoção de ruídos e conexão de áreas quebradas)
-    kernel = np.ones((2, 2), np.uint8)
-    morph = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)  # Abertura para remover pequenos ruídos
-    morph = cv2.morphologyEx(morph, cv2.MORPH_CLOSE, kernel, iterations=1)  # Fechamento para conectar áreas quebradas
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    morph = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=morph_iterations)  # Abertura
+    morph = cv2.morphologyEx(morph, cv2.MORPH_CLOSE, kernel, iterations=morph_iterations)  # Fechamento
     stages.append(cv2.cvtColor(morph, cv2.COLOR_GRAY2BGR))  # Convertendo para BGR para exibição
-    stage_names.append("Operações Morfológicas")
+    stage_names.append(f"Operações Morfológicas (Kernel: {kernel_size}, Iterações: {morph_iterations})")
 
     # 6. Encontrar contornos na imagem e adicionar a contagem de objetos
     contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -85,11 +90,8 @@ def process_image_stages():
     stages.append(contour_image)
     stage_names.append(f"Contornos Detectados - Objetos: {num_objects}")
 
-    # Salvar a imagem com data e hora para evitar sobreescrita
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_image_path = f"output_contours_{timestamp}.jpg"
-    cv2.imwrite(output_image_path, contour_image)
-    messagebox.showinfo("Imagem salva", f"A imagem foi salva como {output_image_path}")
+    # Habilitar botão de salvar imagem na etapa final
+    save_image_btn.configure(state="normal")
 
     # Exibir o primeiro estágio (imagem original)
     display_current_stage()
@@ -114,30 +116,102 @@ def next_stage():
     else:
         messagebox.showinfo("Fim", "Você já visualizou todas as etapas do processamento.")
 
+# Função para salvar a imagem final com data e hora
+def save_image():
+    if stages and current_stage == len(stages) - 1:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_image_path = f"output_final_{timestamp}.jpg"
+        cv2.imwrite(output_image_path, stages[-1])
+        messagebox.showinfo("Imagem Salva", f"Imagem salva como {output_image_path}")
+
+# Função para atualizar os parâmetros a partir dos sliders
+def update_parameters():
+    global blur_value, threshold_value, kernel_size, morph_iterations
+    blur_value = int(blur_slider.get())
+    threshold_value = int(threshold_slider.get())
+    kernel_size = int(kernel_slider.get())
+    morph_iterations = int(iteration_slider.get())
+    process_image_stages()
+
 # Interface gráfica com CustomTkinter
 app = ctk.CTk()
 app.title("Contador de Bactérias - Placa de Petri")
-app.geometry("600x700")
+app.geometry("700x700")
 
-# Título
 title_label = ctk.CTkLabel(app, text="Contador de Bactérias - Placa de Petri", font=("Arial", 20))
 title_label.pack(pady=20)
 
+# Frame lateral (menu de parâmetros)
+side_menu = ctk.CTkFrame(app, width=250, height=600, corner_radius=10)
+side_menu.pack(side="left", padx=20, pady=0)
+
+# Botão para selecionar imagem
+select_image_btn = ctk.CTkButton(side_menu, text="Selecionar Imagem", command=load_image)
+select_image_btn.pack(pady=20)
+
+# Sliders para ajuste dos parâmetros com feedback de valor
+# Blur
+blur_label = ctk.CTkLabel(side_menu, text="Blur")
+blur_label.pack()
+blur_value_label = ctk.CTkLabel(side_menu, text=f"{blur_value}")  # Label para mostrar o valor
+blur_slider = ctk.CTkSlider(side_menu, from_=1, to=21, number_of_steps=10, 
+                            command=lambda val: [blur_value_label.configure(text=f"{int(val)}"), update_parameters()])
+blur_slider.set(blur_value)
+blur_slider.pack(pady=10)
+blur_value_label.pack()  # Mostrar o valor ao lado do slider
+
+# Threshold
+threshold_label = ctk.CTkLabel(side_menu, text="Threshold")
+threshold_label.pack()
+threshold_value_label = ctk.CTkLabel(side_menu, text=f"{threshold_value}")  # Label para mostrar o valor
+threshold_slider = ctk.CTkSlider(side_menu, from_=0, to=255, number_of_steps=255, 
+                                 command=lambda val: [threshold_value_label.configure(text=f"{int(val)}"), update_parameters()])
+threshold_slider.set(threshold_value)
+threshold_slider.pack(pady=10)
+threshold_value_label.pack()  # Mostrar o valor ao lado do slider
+
+# Kernel Size
+kernel_label = ctk.CTkLabel(side_menu, text="Kernel Size")
+kernel_label.pack()
+kernel_value_label = ctk.CTkLabel(side_menu, text=f"{kernel_size}")  # Label para mostrar o valor
+kernel_slider = ctk.CTkSlider(side_menu, from_=1, to=10, number_of_steps=10, 
+                              command=lambda val: [kernel_value_label.configure(text=f"{int(val)}"), update_parameters()])
+kernel_slider.set(kernel_size)
+kernel_slider.pack(pady=10)
+kernel_value_label.pack()  # Mostrar o valor ao lado do slider
+
+# Morph Iterations
+iteration_label = ctk.CTkLabel(side_menu, text="Morph Iterations")
+iteration_label.pack()
+iteration_value_label = ctk.CTkLabel(side_menu, text=f"{morph_iterations}")  # Label para mostrar o valor
+iteration_slider = ctk.CTkSlider(side_menu, from_=1, to=10, number_of_steps=10, 
+                                 command=lambda val: [iteration_value_label.configure(text=f"{int(val)}"), update_parameters()])
+iteration_slider.set(morph_iterations)
+iteration_slider.pack(pady=10)
+iteration_value_label.pack()  # Mostrar o valor ao lado do slider
+
+
+# Container de imagem e controle de etapas (à direita)
+image_frame = ctk.CTkFrame(app, width=800, height=600)
+image_frame.pack(side="left", padx=0, pady=0)
+
 # Label para mostrar a imagem carregada
-image_label = ctk.CTkLabel(app, width=400, height=400, text="")
+image_label = ctk.CTkLabel(image_frame, width=400, height=400, text="")
 image_label.pack(pady=10)
 
 # Label para mostrar o nome do estágio atual
-stage_label = ctk.CTkLabel(app, text="", font=("Arial", 16))
+stage_label = ctk.CTkLabel(image_frame, text="", font=("Arial", 16))
 stage_label.pack(pady=10)
 
-# Botão para selecionar imagem
-select_image_btn = ctk.CTkButton(app, text="Selecionar Imagem", command=load_image)
-select_image_btn.pack(pady=10)
+# Botões para avançar e salvar a imagem final
+button_frame = ctk.CTkFrame(image_frame)
+button_frame.pack(pady=20)
 
-# Botão para avançar para o próximo estágio
-next_stage_btn = ctk.CTkButton(app, text="Avançar", command=next_stage)
-next_stage_btn.pack(pady=10)
+next_stage_btn = ctk.CTkButton(button_frame, text="Avançar", command=next_stage)
+next_stage_btn.grid(row=0, column=0, padx=10)
+
+save_image_btn = ctk.CTkButton(button_frame, text="Salvar Imagem", command=save_image, state="disabled")
+save_image_btn.grid(row=0, column=1, padx=10)
 
 # Loop da interface
 app.mainloop()
